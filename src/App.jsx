@@ -31,6 +31,11 @@ const ReverseRemittancePlanner = () => {
         };
     });
 
+    const [expenseCurrency, setExpenseCurrency] = useState(() => {
+        const saved = localStorage.getItem('remittance-expense-currency');
+        return saved || 'EGP';
+    });
+
     const [selectedPath, setSelectedPath] = useState(() => {
         const saved = localStorage.getItem('remittance-selected-path');
         return saved || 'A';
@@ -67,31 +72,55 @@ const ReverseRemittancePlanner = () => {
         localStorage.setItem('remittance-show-breakdown', JSON.stringify(showBreakdown));
     }, [showBreakdown]);
 
-    // Calculate target total in EGP
-    const targetTotalEgp = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+    useEffect(() => {
+        localStorage.setItem('remittance-expense-currency', expenseCurrency);
+    }, [expenseCurrency]);
 
-    // Calculate Path A: Direct SAR to EGP (Al Rajhi SAR-to-EGP rate)
-    const pathA_SAR = rates.rajhiSarToEgp > 0 ? targetTotalEgp / rates.rajhiSarToEgp : 0;
+    // Calculate target total in the expense currency
+    const targetTotal = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
 
-    // Calculate Path B: USD Bridge (buy USD in KSA, sell for EGP in Egypt)
-    const usdNeeded = rates.nbeUsdToEgp > 0 ? targetTotalEgp / rates.nbeUsdToEgp : 0;
-    const pathB_SAR = usdNeeded * rates.rajhiUsdToSar;
+    // Determine result currency (opposite of expense currency)
+    const resultCurrency = expenseCurrency === 'EGP' ? bankNames.currencyFrom : bankNames.currencyTo;
+
+    // Calculate conversions based on expense currency
+    let pathA_Result, pathB_Result;
+
+    if (expenseCurrency === 'EGP') {
+        // Original logic: EGP expenses → SAR results
+        pathA_Result = rates.rajhiSarToEgp > 0 ? targetTotal / rates.rajhiSarToEgp : 0;
+        const usdNeeded = rates.nbeUsdToEgp > 0 ? targetTotal / rates.nbeUsdToEgp : 0;
+        pathB_Result = usdNeeded * rates.rajhiUsdToSar;
+    } else {
+        // Reverse logic: SAR expenses → EGP results
+        pathA_Result = targetTotal * rates.rajhiSarToEgp;
+        const usdFromSar = rates.rajhiUsdToSar > 0 ? targetTotal / rates.rajhiUsdToSar : 0;
+        pathB_Result = usdFromSar * rates.nbeUsdToEgp;
+    }
 
     // Determine best path
-    const bestPath = pathA_SAR > 0 && pathB_SAR > 0 
-        ? (pathA_SAR < pathB_SAR ? 'A' : 'B')
+    const bestPath = pathA_Result > 0 && pathB_Result > 0 
+        ? (pathA_Result < pathB_Result ? 'A' : 'B')
         : null;
-    const savings = bestPath ? Math.abs(pathA_SAR - pathB_SAR) : 0;
+    const savings = bestPath ? Math.abs(pathA_Result - pathB_Result) : 0;
 
-    // Calculate individual item costs in SAR based on selected path
-    const calculateItemCostInSAR = (itemAmountEgp) => {
-        if (selectedPath === 'A') {
-            // Path A: Direct SAR to EGP
-            return rates.rajhiSarToEgp > 0 ? itemAmountEgp / rates.rajhiSarToEgp : 0;
+    // Calculate individual item costs in result currency based on selected path
+    const calculateItemCostInResultCurrency = (itemAmount) => {
+        if (expenseCurrency === 'EGP') {
+            // EGP → SAR conversion
+            if (selectedPath === 'A') {
+                return rates.rajhiSarToEgp > 0 ? itemAmount / rates.rajhiSarToEgp : 0;
+            } else {
+                const usdForItem = rates.nbeUsdToEgp > 0 ? itemAmount / rates.nbeUsdToEgp : 0;
+                return usdForItem * rates.rajhiUsdToSar;
+            }
         } else {
-            // Path B: USD Bridge
-            const usdForItem = rates.nbeUsdToEgp > 0 ? itemAmountEgp / rates.nbeUsdToEgp : 0;
-            return usdForItem * rates.rajhiUsdToSar;
+            // SAR → EGP conversion
+            if (selectedPath === 'A') {
+                return itemAmount * rates.rajhiSarToEgp;
+            } else {
+                const usdFromSar = rates.rajhiUsdToSar > 0 ? itemAmount / rates.rajhiUsdToSar : 0;
+                return usdFromSar * rates.nbeUsdToEgp;
+            }
         }
     };
 
@@ -152,16 +181,45 @@ const ReverseRemittancePlanner = () => {
                         <Landmark className="w-8 h-8" />
                         <h1 className="text-3xl md:text-4xl font-bold">Remit Balance</h1>
                     </div>
-                    <p className="text-blue-100 text-sm md:text-base">Calculate the optimal currency exchange path for your {bankNames.currencyTo} expenses</p>
+                    <p className="text-blue-100 text-sm md:text-base">Calculate the optimal currency exchange path for your expenses</p>
                 </div>
 
                 <div className="bg-white rounded-b-2xl shadow-xl p-6 md:p-8">
                     {/* Expenses Section */}
                     <div className="mb-8">
-                        <h2 className="text-2xl font-bold text-slate-800 mb-4 flex items-center gap-2">
-                            <TrendingDown className="w-6 h-6 text-blue-600" />
-                            Monthly Expenses ({bankNames.currencyTo})
-                        </h2>
+                        <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
+                            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                                <TrendingDown className="w-6 h-6 text-blue-600" />
+                                Monthly Expenses
+                            </h2>
+                            
+                            {/* Currency Selector */}
+                            <div className="flex items-center gap-3 bg-slate-50 border-2 border-slate-200 rounded-lg p-2">
+                                <label className="text-sm font-semibold text-slate-700">Currency:</label>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => setExpenseCurrency('EGP')}
+                                        className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                                            expenseCurrency === 'EGP'
+                                                ? 'bg-blue-600 text-white shadow-md'
+                                                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-300'
+                                        }`}
+                                    >
+                                        {bankNames.currencyTo}
+                                    </button>
+                                    <button
+                                        onClick={() => setExpenseCurrency('SAR')}
+                                        className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                                            expenseCurrency === 'SAR'
+                                                ? 'bg-blue-600 text-white shadow-md'
+                                                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-300'
+                                        }`}
+                                    >
+                                        {bankNames.currencyFrom}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                         
                         <div className="space-y-3 mb-4">
                             {expenses.map((expense) => (
@@ -173,13 +231,18 @@ const ReverseRemittancePlanner = () => {
                                         className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900"
                                         placeholder="Expense name"
                                     />
-                                    <input
-                                        type="number"
-                                        value={expense.amount}
-                                        onChange={(e) => updateExpense(expense.id, 'amount', e.target.value)}
-                                        className="w-32 md:w-40 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900"
-                                        placeholder="Amount"
-                                    />
+                                    <div className="relative w-32 md:w-40">
+                                        <input
+                                            type="number"
+                                            value={expense.amount}
+                                            onChange={(e) => updateExpense(expense.id, 'amount', e.target.value)}
+                                            className="w-full px-3 py-2 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900"
+                                            placeholder="Amount"
+                                        />
+                                        <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 text-sm font-light pointer-events-none">
+                                            {expenseCurrency}
+                                        </span>
+                                    </div>
                                     <button
                                         onClick={() => removeExpense(expense.id)}
                                         className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -200,14 +263,19 @@ const ReverseRemittancePlanner = () => {
                                 className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900"
                                 placeholder="New expense name"
                             />
-                            <input
-                                type="number"
-                                value={newExpenseAmount}
-                                onChange={(e) => setNewExpenseAmount(e.target.value)}
-                                onKeyPress={(e) => e.key === 'Enter' && addExpense()}
-                                className="w-32 md:w-40 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900"
-                                placeholder="Amount"
-                            />
+                            <div className="relative w-32 md:w-40">
+                                <input
+                                    type="number"
+                                    value={newExpenseAmount}
+                                    onChange={(e) => setNewExpenseAmount(e.target.value)}
+                                    onKeyPress={(e) => e.key === 'Enter' && addExpense()}
+                                    className="w-full px-3 py-2 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900"
+                                    placeholder="Amount"
+                                />
+                                <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 text-sm font-light pointer-events-none">
+                                    {expenseCurrency}
+                                </span>
+                            </div>
                             <button
                                 onClick={addExpense}
                                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 font-medium"
@@ -221,7 +289,7 @@ const ReverseRemittancePlanner = () => {
                         <div className="mt-6 bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
                             <div className="flex justify-between items-center">
                                 <span className="text-lg font-semibold text-slate-700">Target Total:</span>
-                                <span className="text-3xl font-bold text-blue-900">{targetTotalEgp.toLocaleString()} {bankNames.currencyTo}</span>
+                                <span className="text-3xl font-bold text-blue-900">{targetTotal.toLocaleString()} {expenseCurrency}</span>
                             </div>
                         </div>
                     </div>
@@ -338,7 +406,7 @@ const ReverseRemittancePlanner = () => {
                         <h2 className="text-2xl font-bold text-slate-800 mb-4">Comparison Results</h2>
                         
                         <div className="grid md:grid-cols-2 gap-6">
-                            {/* Path A: SAR Direct */}
+                            {/* Path A: Direct */}
                             <div className={`relative rounded-xl p-6 border-2 transition-all ${
                                 bestPath === 'A' 
                                     ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-400 shadow-lg' 
@@ -350,18 +418,32 @@ const ReverseRemittancePlanner = () => {
                                         Best Value
                                     </div>
                                 )}
-                                <h3 className="text-xl font-bold text-slate-800 mb-2">Path A: {bankNames.currencyFrom} Direct</h3>
-                                <p className="text-sm text-slate-600 mb-4">Send {bankNames.currencyFrom} → {bankNames.sendingBank} converts to {bankNames.currencyTo}</p>
+                                <h3 className="text-xl font-bold text-slate-800 mb-2">
+                                    Path A: {expenseCurrency === 'EGP' ? `${bankNames.currencyFrom} Direct` : `${bankNames.currencyTo} Direct`}
+                                </h3>
+                                <p className="text-sm text-slate-600 mb-4">
+                                    {expenseCurrency === 'EGP' 
+                                        ? `Send ${bankNames.currencyFrom} → ${bankNames.sendingBank} converts to ${bankNames.currencyTo}`
+                                        : `Send ${bankNames.currencyTo} → ${bankNames.receivingBank} converts to ${bankNames.currencyFrom}`
+                                    }
+                                </p>
                                 <div className="bg-white rounded-lg p-4 border border-slate-200">
-                                    <div className="text-sm text-slate-500 mb-1">You need to send:</div>
-                                    <div className="text-3xl font-bold text-blue-900">{pathA_SAR.toLocaleString(undefined, {maximumFractionDigits: 2})} {bankNames.currencyFrom}</div>
+                                    <div className="text-sm text-slate-500 mb-1">
+                                        {expenseCurrency === 'EGP' ? 'You need to send:' : 'You will receive:'}
+                                    </div>
+                                    <div className="text-3xl font-bold text-blue-900">
+                                        {pathA_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
+                                    </div>
                                 </div>
                                 <div className="mt-3 text-xs text-slate-500">
-                                    Calculation: {targetTotalEgp.toLocaleString()} {bankNames.currencyTo} ÷ {rates.rajhiSarToEgp} = {pathA_SAR.toLocaleString(undefined, {maximumFractionDigits: 2})} {bankNames.currencyFrom}
+                                    {expenseCurrency === 'EGP' 
+                                        ? `Calculation: ${targetTotal.toLocaleString()} ${expenseCurrency} ÷ ${rates.rajhiSarToEgp} = ${pathA_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
+                                        : `Calculation: ${targetTotal.toLocaleString()} ${expenseCurrency} × ${rates.rajhiSarToEgp} = ${pathA_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
+                                    }
                                 </div>
                             </div>
 
-                            {/* Path B: USD Bridge */}
+                            {/* Path B: Bridge */}
                             <div className={`relative rounded-xl p-6 border-2 transition-all ${
                                 bestPath === 'B' 
                                     ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-400 shadow-lg' 
@@ -374,13 +456,25 @@ const ReverseRemittancePlanner = () => {
                                     </div>
                                 )}
                                 <h3 className="text-xl font-bold text-slate-800 mb-2">Path B: {bankNames.currencyBridge} Bridge</h3>
-                                <p className="text-sm text-slate-600 mb-4">Buy {bankNames.currencyBridge} in KSA → Sell for {bankNames.currencyTo} in Egypt</p>
+                                <p className="text-sm text-slate-600 mb-4">
+                                    {expenseCurrency === 'EGP'
+                                        ? `Buy ${bankNames.currencyBridge} in KSA → Sell for ${bankNames.currencyTo} in Egypt`
+                                        : `Convert ${bankNames.currencyFrom} to ${bankNames.currencyBridge} → Convert to ${bankNames.currencyTo}`
+                                    }
+                                </p>
                                 <div className="bg-white rounded-lg p-4 border border-slate-200">
-                                    <div className="text-sm text-slate-500 mb-1">You need to send:</div>
-                                    <div className="text-3xl font-bold text-blue-900">{pathB_SAR.toLocaleString(undefined, {maximumFractionDigits: 2})} {bankNames.currencyFrom}</div>
+                                    <div className="text-sm text-slate-500 mb-1">
+                                        {expenseCurrency === 'EGP' ? 'You need to send:' : 'You will receive:'}
+                                    </div>
+                                    <div className="text-3xl font-bold text-blue-900">
+                                        {pathB_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
+                                    </div>
                                 </div>
                                 <div className="mt-3 text-xs text-slate-500">
-                                    Calculation: ({targetTotalEgp.toLocaleString()} {bankNames.currencyTo} ÷ {rates.nbeUsdToEgp}) × {rates.rajhiUsdToSar} = {pathB_SAR.toLocaleString(undefined, {maximumFractionDigits: 2})} {bankNames.currencyFrom}
+                                    {expenseCurrency === 'EGP'
+                                        ? `Calculation: (${targetTotal.toLocaleString()} ${expenseCurrency} ÷ ${rates.nbeUsdToEgp}) × ${rates.rajhiUsdToSar} = ${pathB_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
+                                        : `Calculation: (${targetTotal.toLocaleString()} ${expenseCurrency} ÷ ${rates.rajhiUsdToSar}) × ${rates.nbeUsdToEgp} = ${pathB_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
+                                    }
                                 </div>
                             </div>
                         </div>
@@ -390,12 +484,16 @@ const ReverseRemittancePlanner = () => {
                             <div className="mt-6 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl p-5 text-white">
                                 <div className="flex items-center justify-between flex-wrap gap-3">
                                     <div>
-                                        <div className="text-sm opacity-90">Savings with Path {bestPath}:</div>
-                                        <div className="text-3xl font-bold">{savings.toLocaleString(undefined, {maximumFractionDigits: 2})} {bankNames.currencyFrom}</div>
+                                        <div className="text-sm opacity-90">
+                                            {expenseCurrency === 'EGP' ? 'Savings with Path' : 'Extra received with Path'} {bestPath}:
+                                        </div>
+                                        <div className="text-3xl font-bold">{savings.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}</div>
                                     </div>
                                     <div className="text-right">
-                                        <div className="text-sm opacity-90">Cost Difference:</div>
-                                        <div className="text-xl font-semibold">{((savings / Math.max(pathA_SAR, pathB_SAR)) * 100).toFixed(2)}% cheaper</div>
+                                        <div className="text-sm opacity-90">
+                                            {expenseCurrency === 'EGP' ? 'Cost Difference:' : 'Value Difference:'}
+                                        </div>
+                                        <div className="text-xl font-semibold">{((savings / Math.max(pathA_Result, pathB_Result)) * 100).toFixed(2)}% {expenseCurrency === 'EGP' ? 'cheaper' : 'more'}</div>
                                     </div>
                                 </div>
                             </div>
@@ -441,7 +539,7 @@ const ReverseRemittancePlanner = () => {
                                             }`}
                                         >
                                             <div className="flex items-center justify-center gap-2">
-                                                <span>Path A: {bankNames.currencyFrom} Direct</span>
+                                                <span>Path A: {expenseCurrency === 'EGP' ? `${bankNames.currencyFrom} Direct` : `${bankNames.currencyTo} Direct`}</span>
                                                 {bestPath === 'A' && <Award className="w-4 h-4" />}
                                             </div>
                                             <div className="text-xs mt-1 opacity-80">
@@ -475,7 +573,10 @@ const ReverseRemittancePlanner = () => {
                                             <div>
                                                 <h3 className="text-lg font-bold">Cost Breakdown</h3>
                                                 <p className="text-xs text-slate-200">
-                                                    Using: Path {selectedPath} - {selectedPath === 'A' ? `${bankNames.currencyFrom} Direct` : `${bankNames.currencyBridge} Bridge`}
+                                                    Using: Path {selectedPath} - {selectedPath === 'A' 
+                                                        ? (expenseCurrency === 'EGP' ? `${bankNames.currencyFrom} Direct` : `${bankNames.currencyTo} Direct`)
+                                                        : `${bankNames.currencyBridge} Bridge`
+                                                    }
                                                 </p>
                                             </div>
                                             <Receipt className="w-8 h-8 opacity-80" />
@@ -494,16 +595,16 @@ const ReverseRemittancePlanner = () => {
                                                 {/* Table Header */}
                                                 <div className="grid grid-cols-12 gap-4 pb-3 border-b-2 border-slate-200 text-sm font-semibold text-slate-600">
                                                     <div className="col-span-5">Item</div>
-                                                    <div className="col-span-3 text-right">{bankNames.currencyTo} Amount</div>
+                                                    <div className="col-span-3 text-right">{expenseCurrency} Amount</div>
                                                     <div className="col-span-1 text-center">
                                                         <ArrowRight className="w-4 h-4 mx-auto" />
                                                     </div>
-                                                    <div className="col-span-3 text-right">{bankNames.currencyFrom} Cost</div>
+                                                    <div className="col-span-3 text-right">{resultCurrency} {expenseCurrency === 'EGP' ? 'Cost' : 'Value'}</div>
                                                 </div>
 
                                                 {/* Table Rows */}
                                                 {expenses.map((expense, index) => {
-                                                    const sarCost = calculateItemCostInSAR(expense.amount);
+                                                    const resultAmount = calculateItemCostInResultCurrency(expense.amount);
                                                     return (
                                                         <div 
                                                             key={expense.id} 
@@ -515,13 +616,13 @@ const ReverseRemittancePlanner = () => {
                                                                 {expense.name}
                                                             </div>
                                                             <div className="col-span-3 text-right text-slate-700">
-                                                                {expense.amount.toLocaleString()} {bankNames.currencyTo}
+                                                                {expense.amount.toLocaleString()} {expenseCurrency}
                                                             </div>
                                                             <div className="col-span-1 text-center text-slate-400">
                                                                 <ArrowRight className="w-4 h-4 mx-auto" />
                                                             </div>
                                                             <div className="col-span-3 text-right font-semibold text-blue-900">
-                                                                {sarCost.toLocaleString(undefined, {maximumFractionDigits: 2})} {bankNames.currencyFrom}
+                                                                {resultAmount.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
                                                             </div>
                                                         </div>
                                                     );
@@ -537,11 +638,11 @@ const ReverseRemittancePlanner = () => {
                                                         TOTAL
                                                     </div>
                                                     <div className="col-span-3 text-right text-lg font-bold text-slate-800">
-                                                        {targetTotalEgp.toLocaleString()} {bankNames.currencyTo}
+                                                        {targetTotal.toLocaleString()} {expenseCurrency}
                                                     </div>
                                                     <div className="col-span-1"></div>
                                                     <div className="col-span-3 text-right text-2xl font-bold text-blue-900">
-                                                        {(selectedPath === 'A' ? pathA_SAR : pathB_SAR).toLocaleString(undefined, {maximumFractionDigits: 2})} {bankNames.currencyFrom}
+                                                        {(selectedPath === 'A' ? pathA_Result : pathB_Result).toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
                                                     </div>
                                                 </div>
 
@@ -550,12 +651,17 @@ const ReverseRemittancePlanner = () => {
                                                     <p className="text-sm text-slate-600 font-medium mb-2">Conversion Details:</p>
                                                     {selectedPath === 'A' ? (
                                                         <p className="text-xs text-slate-500">
-                                                            Using {bankNames.sendingBank} direct transfer at {rates.rajhiSarToEgp} {bankNames.currencyFrom}/{bankNames.currencyTo}
+                                                            {expenseCurrency === 'EGP'
+                                                                ? `Using ${bankNames.sendingBank} direct transfer at ${rates.rajhiSarToEgp} ${bankNames.currencyFrom}/${bankNames.currencyTo}`
+                                                                : `Using ${bankNames.receivingBank} direct transfer at ${rates.rajhiSarToEgp} ${bankNames.currencyFrom}/${bankNames.currencyTo}`
+                                                            }
                                                         </p>
                                                     ) : (
                                                         <p className="text-xs text-slate-500">
-                                                            Buying {bankNames.currencyBridge} at {rates.rajhiUsdToSar} {bankNames.currencyFrom}/{bankNames.currencyBridge}, 
-                                                            selling for {bankNames.currencyTo} at {rates.nbeUsdToEgp} {bankNames.currencyBridge}/{bankNames.currencyTo}
+                                                            {expenseCurrency === 'EGP'
+                                                                ? `Buying ${bankNames.currencyBridge} at ${rates.rajhiUsdToSar} ${bankNames.currencyFrom}/${bankNames.currencyBridge}, selling for ${bankNames.currencyTo} at ${rates.nbeUsdToEgp} ${bankNames.currencyBridge}/${bankNames.currencyTo}`
+                                                                : `Converting ${bankNames.currencyFrom} to ${bankNames.currencyBridge} at ${rates.rajhiUsdToSar} ${bankNames.currencyFrom}/${bankNames.currencyBridge}, then to ${bankNames.currencyTo} at ${rates.nbeUsdToEgp} ${bankNames.currencyBridge}/${bankNames.currencyTo}`
+                                                            }
                                                         </p>
                                                     )}
                                                 </div>
