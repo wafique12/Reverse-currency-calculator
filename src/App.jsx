@@ -1,5 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Landmark, TrendingDown, Award, Edit2, Receipt, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, Landmark, TrendingDown, Award, Edit2, Receipt, ArrowRight, ChevronDown, ChevronUp, Globe, Coins, ArrowLeftRight, DollarSign } from 'lucide-react';
+
+// Country to Currency Mapping - SINGLE SOURCE OF TRUTH
+const COUNTRY_CONFIG = {
+    'Egypt': {
+        currency: 'EGP',
+        flag: '🇪🇬',
+        bankName: 'NBE'
+    },
+    'Saudi Arabia': {
+        currency: 'SAR',
+        flag: '🇸🇦',
+        bankName: 'Al Rajhi'
+    },
+    'UAE': {
+        currency: 'AED',
+        flag: '🇦🇪',
+        bankName: 'Emirates NBD'
+    },
+    'Kuwait': {
+        currency: 'KWD',
+        flag: '🇰🇼',
+        bankName: 'NBK'
+    },
+    'Jordan': {
+        currency: 'JOD',
+        flag: '🇯🇴',
+        bankName: 'Arab Bank'
+    }
+};
 
 const ReverseRemittancePlanner = () => {
     // Initialize state from localStorage or use defaults
@@ -11,29 +40,43 @@ const ReverseRemittancePlanner = () => {
         ];
     });
 
-    const [rates, setRates] = useState(() => {
-        const saved = localStorage.getItem('remittance-rates');
-        return saved ? JSON.parse(saved) : {
-            rajhiSarToEgp: 13.5,
-            nbeUsdToEgp: 50.5,
-            rajhiUsdToSar: 3.75
-        };
+    // FIXED: Direct state variables with EXPLICIT DEFAULT VALUES
+    const [directRate, setDirectRate] = useState(() => {
+        const saved = localStorage.getItem('remittance-direct-rate');
+        return saved ? parseFloat(saved) : 13;
+    });
+
+    const [sellRate, setSellRate] = useState(() => {
+        const saved = localStorage.getItem('remittance-sell-rate');
+        return saved ? parseFloat(saved) : 3.75;
+    });
+
+    const [buyRate, setBuyRate] = useState(() => {
+        const saved = localStorage.getItem('remittance-buy-rate');
+        return saved ? parseFloat(saved) : 50;
     });
 
     const [bankNames, setBankNames] = useState(() => {
         const saved = localStorage.getItem('remittance-bank-names');
         return saved ? JSON.parse(saved) : {
-            sendingBank: 'Al Rajhi',
-            receivingBank: 'NBE',
-            currencyFrom: 'SAR',
-            currencyTo: 'EGP',
             currencyBridge: 'USD'
         };
     });
 
-    const [expenseCurrency, setExpenseCurrency] = useState(() => {
-        const saved = localStorage.getItem('remittance-expense-currency');
-        return saved || 'EGP';
+    const [transferFrom, setTransferFrom] = useState(() => {
+        const saved = localStorage.getItem('remittance-transfer-from');
+        return saved || 'Saudi Arabia';
+    });
+
+    const [transferTo, setTransferTo] = useState(() => {
+        const saved = localStorage.getItem('remittance-transfer-to');
+        return saved || 'Egypt';
+    });
+
+    const [inputCurrency, setInputCurrency] = useState(() => {
+        const saved = localStorage.getItem('remittance-input-currency');
+        if (saved) return saved;
+        return COUNTRY_CONFIG[transferFrom]?.currency || 'SAR';
     });
 
     const [selectedPath, setSelectedPath] = useState(() => {
@@ -46,19 +89,42 @@ const ReverseRemittancePlanner = () => {
         return saved ? JSON.parse(saved) : false;
     });
 
+    const [showExpenses, setShowExpenses] = useState(() => {
+        const saved = localStorage.getItem('remittance-show-expenses');
+        return saved ? JSON.parse(saved) : false;
+    });
+
     const [newExpenseName, setNewExpenseName] = useState('');
     const [newExpenseAmount, setNewExpenseAmount] = useState('');
     const [editingBank, setEditingBank] = useState(null);
     const [tempBankName, setTempBankName] = useState('');
 
-    // Save to localStorage whenever data changes
+    const [invalidFields, setInvalidFields] = useState({
+        newExpenseName: false,
+        newExpenseAmount: false
+    });
+
+    const countries = Object.keys(COUNTRY_CONFIG);
+    const fromCurrency = COUNTRY_CONFIG[transferFrom].currency;
+    const toCurrency = COUNTRY_CONFIG[transferTo].currency;
+    const availableCurrencies = Array.from(new Set([fromCurrency, toCurrency, 'USD']));
+
+    // Save to localStorage
     useEffect(() => {
         localStorage.setItem('remittance-expenses', JSON.stringify(expenses));
     }, [expenses]);
 
     useEffect(() => {
-        localStorage.setItem('remittance-rates', JSON.stringify(rates));
-    }, [rates]);
+        localStorage.setItem('remittance-direct-rate', directRate.toString());
+    }, [directRate]);
+
+    useEffect(() => {
+        localStorage.setItem('remittance-sell-rate', sellRate.toString());
+    }, [sellRate]);
+
+    useEffect(() => {
+        localStorage.setItem('remittance-buy-rate', buyRate.toString());
+    }, [buyRate]);
 
     useEffect(() => {
         localStorage.setItem('remittance-bank-names', JSON.stringify(bankNames));
@@ -73,67 +139,129 @@ const ReverseRemittancePlanner = () => {
     }, [showBreakdown]);
 
     useEffect(() => {
-        localStorage.setItem('remittance-expense-currency', expenseCurrency);
-    }, [expenseCurrency]);
+        localStorage.setItem('remittance-show-expenses', JSON.stringify(showExpenses));
+    }, [showExpenses]);
 
-    // Calculate target total in the expense currency
+    useEffect(() => {
+        localStorage.setItem('remittance-input-currency', inputCurrency);
+    }, [inputCurrency]);
+
+    useEffect(() => {
+        localStorage.setItem('remittance-transfer-from', transferFrom);
+    }, [transferFrom]);
+
+    useEffect(() => {
+        localStorage.setItem('remittance-transfer-to', transferTo);
+    }, [transferTo]);
+
+    const handleFromCountryChange = (newFromCountry) => {
+        if (newFromCountry === transferTo) {
+            setTransferTo(transferFrom);
+        }
+        setTransferFrom(newFromCountry);
+        
+        const newCurrency = COUNTRY_CONFIG[newFromCountry].currency;
+        setInputCurrency(newCurrency);
+    };
+
+    const handleToCountryChange = (newToCountry) => {
+        if (newToCountry === transferFrom) {
+            setTransferFrom(transferTo);
+            const newCurrency = COUNTRY_CONFIG[transferTo].currency;
+            setInputCurrency(newCurrency);
+        }
+        setTransferTo(newToCountry);
+    };
+
+    const handleSwapCountries = () => {
+        const temp = transferFrom;
+        setTransferFrom(transferTo);
+        setTransferTo(temp);
+        
+        const newCurrency = COUNTRY_CONFIG[transferTo].currency;
+        setInputCurrency(newCurrency);
+    };
+
     const targetTotal = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
 
-    // Determine result currency (opposite of expense currency)
-    const resultCurrency = expenseCurrency === 'EGP' ? bankNames.currencyFrom : bankNames.currencyTo;
+    const getResultCurrency = () => {
+        if (inputCurrency === fromCurrency) {
+            return toCurrency;
+        } else if (inputCurrency === toCurrency) {
+            return fromCurrency;
+        } else {
+            return toCurrency;
+        }
+    };
 
-    // Calculate conversions based on expense currency
+    const resultCurrency = getResultCurrency();
+
+    const getExchangeRate = (from, to) => {
+        if (from === to) return 1;
+        
+        // Use direct state variables for rates
+        if (from === 'SAR' && to === 'EGP') return directRate;
+        if (from === 'EGP' && to === 'SAR') return 1 / directRate;
+        if (from === 'USD' && to === 'EGP') return buyRate;
+        if (from === 'EGP' && to === 'USD') return 1 / buyRate;
+        if (from === 'USD' && to === 'SAR') return sellRate;
+        if (from === 'SAR' && to === 'USD') return 1 / sellRate;
+        
+        return 1;
+    };
+
     let pathA_Result, pathB_Result;
 
-    if (expenseCurrency === 'EGP') {
-        // Original logic: EGP expenses → SAR results
-        pathA_Result = rates.rajhiSarToEgp > 0 ? targetTotal / rates.rajhiSarToEgp : 0;
-        const usdNeeded = rates.nbeUsdToEgp > 0 ? targetTotal / rates.nbeUsdToEgp : 0;
-        pathB_Result = usdNeeded * rates.rajhiUsdToSar;
-    } else {
-        // Reverse logic: SAR expenses → EGP results
-        pathA_Result = targetTotal * rates.rajhiSarToEgp;
-        const usdFromSar = rates.rajhiUsdToSar > 0 ? targetTotal / rates.rajhiUsdToSar : 0;
-        pathB_Result = usdFromSar * rates.nbeUsdToEgp;
-    }
+    const directConversionRate = getExchangeRate(inputCurrency, resultCurrency);
+    pathA_Result = targetTotal * directConversionRate;
 
-    // Determine best path
-    const bestPath = pathA_Result > 0 && pathB_Result > 0 
-        ? (pathA_Result < pathB_Result ? 'A' : 'B')
-        : null;
+    const inputToUsd = getExchangeRate(inputCurrency, 'USD');
+    const usdToResult = getExchangeRate('USD', resultCurrency);
+    pathB_Result = targetTotal * inputToUsd * usdToResult;
+
+    let bestPath = null;
+    if (pathA_Result > 0 && pathB_Result > 0 && Math.abs(pathA_Result - pathB_Result) > 0.01) {
+        if (inputCurrency === fromCurrency) {
+            bestPath = pathA_Result > pathB_Result ? 'A' : 'B';
+        } else if (inputCurrency === toCurrency) {
+            bestPath = pathA_Result < pathB_Result ? 'A' : 'B';
+        } else {
+            bestPath = pathA_Result > pathB_Result ? 'A' : 'B';
+        }
+    }
+    
     const savings = bestPath ? Math.abs(pathA_Result - pathB_Result) : 0;
 
-    // Calculate individual item costs in result currency based on selected path
     const calculateItemCostInResultCurrency = (itemAmount) => {
-        if (expenseCurrency === 'EGP') {
-            // EGP → SAR conversion
-            if (selectedPath === 'A') {
-                return rates.rajhiSarToEgp > 0 ? itemAmount / rates.rajhiSarToEgp : 0;
-            } else {
-                const usdForItem = rates.nbeUsdToEgp > 0 ? itemAmount / rates.nbeUsdToEgp : 0;
-                return usdForItem * rates.rajhiUsdToSar;
-            }
+        if (selectedPath === 'A') {
+            const directConversionRate = getExchangeRate(inputCurrency, resultCurrency);
+            return itemAmount * directConversionRate;
         } else {
-            // SAR → EGP conversion
-            if (selectedPath === 'A') {
-                return itemAmount * rates.rajhiSarToEgp;
-            } else {
-                const usdFromSar = rates.rajhiUsdToSar > 0 ? itemAmount / rates.rajhiUsdToSar : 0;
-                return usdFromSar * rates.nbeUsdToEgp;
-            }
+            const inputToUsd = getExchangeRate(inputCurrency, 'USD');
+            const usdToResult = getExchangeRate('USD', resultCurrency);
+            return itemAmount * inputToUsd * usdToResult;
         }
     };
 
     const addExpense = () => {
-        if (newExpenseName.trim() && newExpenseAmount) {
+        const nameValid = newExpenseName.trim() !== '';
+        const amountValid = newExpenseAmount !== '' && parseFloat(newExpenseAmount) > 0;
+
+        setInvalidFields({
+            newExpenseName: !nameValid,
+            newExpenseAmount: !amountValid
+        });
+
+        if (nameValid && amountValid) {
             const newId = expenses.length > 0 ? Math.max(...expenses.map(e => e.id)) + 1 : 1;
             setExpenses([...expenses, {
                 id: newId,
                 name: newExpenseName.trim(),
-                amount: parseFloat(newExpenseAmount) || 0
+                amount: parseFloat(newExpenseAmount)
             }]);
             setNewExpenseName('');
             setNewExpenseAmount('');
+            setInvalidFields({ newExpenseName: false, newExpenseAmount: false });
         }
     };
 
@@ -145,10 +273,6 @@ const ReverseRemittancePlanner = () => {
         setExpenses(expenses.map(exp => 
             exp.id === id ? { ...exp, [field]: field === 'amount' ? parseFloat(value) || 0 : value } : exp
         ));
-    };
-
-    const updateRate = (field, value) => {
-        setRates({ ...rates, [field]: parseFloat(value) || 0 });
     };
 
     const startEditingBank = (field) => {
@@ -169,232 +293,266 @@ const ReverseRemittancePlanner = () => {
         setTempBankName('');
     };
 
-    // Get current year
     const currentYear = new Date().getFullYear();
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
             <div className="max-w-6xl mx-auto">
                 {/* Header */}
-                <div className="bg-gradient-to-r from-blue-900 to-blue-700 rounded-t-2xl p-6 md:p-8 text-white shadow-xl">
+                <div className="bg-gradient-to-r from-blue-900 to-blue-700 rounded-t-2xl p-6 text-white shadow-xl">
                     <div className="flex items-center gap-3 mb-2">
                         <Landmark className="w-8 h-8" />
-                        <h1 className="text-3xl md:text-4xl font-bold">Remit Balance</h1>
+                        <h1 className="text-3xl md:text-4xl font-bold">Reverse Remittance Planner</h1>
                     </div>
-                    <p className="text-blue-100 text-sm md:text-base">Calculate the optimal currency exchange path for your expenses</p>
+                    <p className="text-blue-100 text-sm">Calculate the optimal currency exchange path for your transfers</p>
                 </div>
 
                 <div className="bg-white rounded-b-2xl shadow-xl p-6 md:p-8">
-                    {/* Expenses Section */}
-                    <div className="mb-8">
-                        <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
-                            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                                <TrendingDown className="w-6 h-6 text-blue-600" />
-                                Monthly Expenses
-                            </h2>
-                            
-                            {/* Currency Selector */}
-                            <div className="flex items-center gap-3 bg-slate-50 border-2 border-slate-200 rounded-lg p-2">
-                                <label className="text-sm font-semibold text-slate-700">Currency:</label>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => setExpenseCurrency('EGP')}
-                                        className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                                            expenseCurrency === 'EGP'
-                                                ? 'bg-blue-600 text-white shadow-md'
-                                                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-300'
-                                        }`}
+                    {/* COMPACT Transfer Configuration Section */}
+                    <div className="mb-6 p-4 bg-gradient-to-r from-slate-50 to-blue-50 rounded-lg border border-slate-200">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-semibold text-slate-600">From:</label>
+                                <div className="relative">
+                                    <select
+                                        value={transferFrom}
+                                        onChange={(e) => handleFromCountryChange(e.target.value)}
+                                        className="pl-3 pr-8 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 appearance-none cursor-pointer hover:border-blue-400 transition-colors"
                                     >
-                                        {bankNames.currencyTo}
-                                    </button>
-                                    <button
-                                        onClick={() => setExpenseCurrency('SAR')}
-                                        className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                                            expenseCurrency === 'SAR'
-                                                ? 'bg-blue-600 text-white shadow-md'
-                                                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-300'
-                                        }`}
-                                    >
-                                        {bankNames.currencyFrom}
-                                    </button>
+                                        {countries.map(country => (
+                                            <option key={country} value={country}>
+                                                {COUNTRY_CONFIG[country].flag} {country}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                                 </div>
                             </div>
-                        </div>
-                        
-                        <div className="space-y-3 mb-4">
-                            {expenses.map((expense) => (
-                                <div key={expense.id} className="flex gap-3 items-center bg-slate-50 p-3 rounded-lg border border-slate-200">
-                                    <input
-                                        type="text"
-                                        value={expense.name}
-                                        onChange={(e) => updateExpense(expense.id, 'name', e.target.value)}
-                                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900"
-                                        placeholder="Expense name"
-                                    />
-                                    <div className="relative w-32 md:w-40">
-                                        <input
-                                            type="number"
-                                            value={expense.amount}
-                                            onChange={(e) => updateExpense(expense.id, 'amount', e.target.value)}
-                                            className="w-full px-3 py-2 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900"
-                                            placeholder="Amount"
-                                        />
-                                        <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 text-sm font-light pointer-events-none">
-                                            {expenseCurrency}
-                                        </span>
-                                    </div>
-                                    <button
-                                        onClick={() => removeExpense(expense.id)}
-                                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                    >
-                                        <Trash2 className="w-5 h-5" />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
 
-                        {/* Add New Expense */}
-                        <div className="flex gap-3 items-center">
-                            <input
-                                type="text"
-                                value={newExpenseName}
-                                onChange={(e) => setNewExpenseName(e.target.value)}
-                                onKeyPress={(e) => e.key === 'Enter' && addExpense()}
-                                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900"
-                                placeholder="New expense name"
-                            />
-                            <div className="relative w-32 md:w-40">
-                                <input
-                                    type="number"
-                                    value={newExpenseAmount}
-                                    onChange={(e) => setNewExpenseAmount(e.target.value)}
-                                    onKeyPress={(e) => e.key === 'Enter' && addExpense()}
-                                    className="w-full px-3 py-2 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900"
-                                    placeholder="Amount"
-                                />
-                                <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 text-sm font-light pointer-events-none">
-                                    {expenseCurrency}
-                                </span>
-                            </div>
                             <button
-                                onClick={addExpense}
-                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 font-medium"
+                                onClick={handleSwapCountries}
+                                className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-all shadow-sm hover:shadow active:scale-95"
+                                title="Swap countries"
                             >
-                                <Plus className="w-5 h-5" />
-                                Add
+                                <ArrowLeftRight className="w-4 h-4" />
                             </button>
-                        </div>
 
-                        {/* Total */}
-                        <div className="mt-6 bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
-                            <div className="flex justify-between items-center">
-                                <span className="text-lg font-semibold text-slate-700">Target Total:</span>
-                                <span className="text-3xl font-bold text-blue-900">{targetTotal.toLocaleString()} {expenseCurrency}</span>
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-semibold text-slate-600">To:</label>
+                                <div className="relative">
+                                    <select
+                                        value={transferTo}
+                                        onChange={(e) => handleToCountryChange(e.target.value)}
+                                        className="pl-3 pr-8 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 appearance-none cursor-pointer hover:border-blue-400 transition-colors"
+                                    >
+                                        {countries.map(country => (
+                                            <option key={country} value={country}>
+                                                {COUNTRY_CONFIG[country].flag} {country}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                                </div>
+                            </div>
+
+                            <div className="h-6 w-px bg-slate-300 hidden md:block"></div>
+
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-semibold text-slate-600">Currency:</label>
+                                <div className="relative">
+                                    <select
+                                        value={inputCurrency}
+                                        onChange={(e) => setInputCurrency(e.target.value)}
+                                        className="pl-3 pr-8 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 appearance-none cursor-pointer hover:border-blue-400 transition-colors"
+                                    >
+                                        {availableCurrencies.map(currency => (
+                                            <option key={currency} value={currency}>{currency}</option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                                </div>
+                            </div>
+
+                            <div className="ml-auto flex items-center gap-2 px-3 py-1 bg-blue-100 rounded-md text-xs font-medium text-blue-900">
+                                <span>{inputCurrency === fromCurrency ? '📊 Maximize' : '💰 Minimize'}</span>
+                                <span className="text-blue-600">→</span>
+                                <span className="font-bold">{resultCurrency}</span>
                             </div>
                         </div>
                     </div>
 
-                    {/* Exchange Rates Section */}
-                    <div className="mb-8">
-                        <h2 className="text-2xl font-bold text-slate-800 mb-4">Exchange Rates</h2>
-                        
-                        <div className="grid md:grid-cols-2 gap-6">
-                            {/* Sending Bank (Al Rajhi) */}
-                            <div className="bg-gradient-to-br from-green-50 to-white border-2 border-green-200 rounded-xl p-5">
-                                <h3 className="text-lg font-bold text-green-900 mb-4 flex items-center gap-2">
-                                    <Landmark className="w-5 h-5" />
-                                    {editingBank === 'sendingBank' ? (
-                                        <div className="flex items-center gap-2 flex-1">
+                    {/* COLLAPSIBLE Expenses Section */}
+                    <div className="mb-6">
+                        <div 
+                            className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-4 cursor-pointer hover:from-blue-700 hover:to-blue-800 transition-all shadow-md"
+                            onClick={() => setShowExpenses(!showExpenses)}
+                        >
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <TrendingDown className="w-6 h-6 text-white" />
+                                    <div>
+                                        <h2 className="text-lg font-bold text-white">Monthly Expenses</h2>
+                                        <p className="text-xs text-blue-100">{expenses.length} item{expenses.length !== 1 ? 's' : ''}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    <div className="text-right">
+                                        <div className="text-xs text-blue-100">Target Total</div>
+                                        <div className="text-2xl font-bold text-white">{targetTotal.toLocaleString()} {inputCurrency}</div>
+                                    </div>
+                                    <button className="text-white p-1 hover:bg-blue-600 rounded transition-colors">
+                                        {showExpenses ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {showExpenses && (
+                            <div className="mt-3 p-4 bg-slate-50 rounded-lg border border-slate-200 animate-fadeIn">
+                                <div className="space-y-2 mb-3">
+                                    {expenses.map((expense) => (
+                                        <div key={expense.id} className="flex gap-2 items-center bg-white p-2 rounded-md border border-slate-200">
                                             <input
                                                 type="text"
-                                                value={tempBankName}
-                                                onChange={(e) => setTempBankName(e.target.value)}
-                                                onKeyPress={(e) => {
-                                                    if (e.key === 'Enter') saveBank();
-                                                    if (e.key === 'Escape') cancelEditBank();
-                                                }}
-                                                className="px-2 py-1 border border-green-400 rounded text-sm flex-1 text-slate-900"
-                                                autoFocus
+                                                value={expense.name}
+                                                onChange={(e) => updateExpense(expense.id, 'name', e.target.value)}
+                                                className="flex-1 px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 text-sm"
+                                                placeholder="Expense name"
                                             />
-                                            <button onClick={saveBank} className="text-xs bg-green-600 text-white px-2 py-1 rounded">✓</button>
-                                            <button onClick={cancelEditBank} className="text-xs bg-gray-400 text-white px-2 py-1 rounded">✗</button>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            {bankNames.sendingBank} (KSA)
-                                            <button onClick={() => startEditingBank('sendingBank')} className="ml-auto">
-                                                <Edit2 className="w-4 h-4 text-green-700 hover:text-green-900" />
+                                            <div className="relative w-32 md:w-36">
+                                                <input
+                                                    type="number"
+                                                    value={expense.amount}
+                                                    onChange={(e) => updateExpense(expense.id, 'amount', e.target.value)}
+                                                    className="w-full px-3 py-2 pr-10 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 text-sm"
+                                                    placeholder="Amount"
+                                                    min="0.01"
+                                                    step="0.01"
+                                                />
+                                                <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-slate-400 text-xs font-light pointer-events-none">
+                                                    {inputCurrency}
+                                                </span>
+                                            </div>
+                                            <button
+                                                onClick={() => removeExpense(expense.id)}
+                                                className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
                                             </button>
-                                        </>
-                                    )}
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="flex gap-2 items-center">
+                                    <input
+                                        type="text"
+                                        value={newExpenseName}
+                                        onChange={(e) => {
+                                            setNewExpenseName(e.target.value);
+                                            if (invalidFields.newExpenseName && e.target.value.trim()) {
+                                                setInvalidFields(prev => ({ ...prev, newExpenseName: false }));
+                                            }
+                                        }}
+                                        onKeyPress={(e) => e.key === 'Enter' && addExpense()}
+                                        className={`flex-1 px-3 py-2 rounded-md focus:ring-2 focus:ring-blue-500 text-slate-900 text-sm ${
+                                            invalidFields.newExpenseName 
+                                                ? 'border-2 border-red-500' 
+                                                : 'border border-slate-300 focus:border-transparent'
+                                        }`}
+                                        placeholder="New expense name"
+                                    />
+                                    <div className="relative w-32 md:w-36">
+                                        <input
+                                            type="number"
+                                            value={newExpenseAmount}
+                                            onChange={(e) => {
+                                                setNewExpenseAmount(e.target.value);
+                                                if (invalidFields.newExpenseAmount && e.target.value && parseFloat(e.target.value) > 0) {
+                                                    setInvalidFields(prev => ({ ...prev, newExpenseAmount: false }));
+                                                }
+                                            }}
+                                            onKeyPress={(e) => e.key === 'Enter' && addExpense()}
+                                            className={`w-full px-3 py-2 pr-10 rounded-md focus:ring-2 focus:ring-blue-500 text-slate-900 text-sm ${
+                                                invalidFields.newExpenseAmount 
+                                                    ? 'border-2 border-red-500' 
+                                                    : 'border border-slate-300 focus:border-transparent'
+                                            }`}
+                                            placeholder="Amount"
+                                            min="0.01"
+                                            step="0.01"
+                                        />
+                                        <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-slate-400 text-xs font-light pointer-events-none">
+                                            {inputCurrency}
+                                        </span>
+                                    </div>
+                                    <button
+                                        onClick={addExpense}
+                                        className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1 font-medium text-sm"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                        Add
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Exchange Rates Section - FIXED WITH EXPLICIT VALUE BINDING */}
+                    <div className="mb-6">
+                        <h2 className="text-xl font-bold text-slate-800 mb-3">Exchange Rates</h2>
+                        
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <div className="bg-gradient-to-br from-green-50 to-white border border-green-200 rounded-lg p-4">
+                                <h3 className="text-base font-bold text-green-900 mb-3 flex items-center gap-2">
+                                    <Landmark className="w-4 h-4" />
+                                    {COUNTRY_CONFIG[transferFrom]?.bankName} ({transferFrom})
                                 </h3>
-                                <div className="space-y-3">
+                                <div className="space-y-2">
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-600 mb-1">
-                                            {bankNames.currencyFrom} to {bankNames.currencyTo} (Direct Transfer)
+                                        <label className="block text-xs font-medium text-slate-600 mb-1">
+                                            SAR to EGP (Direct Transfer)
                                         </label>
                                         <input
                                             type="number"
                                             step="0.01"
-                                            value={rates.rajhiSarToEgp}
-                                            onChange={(e) => updateRate('rajhiSarToEgp', e.target.value)}
-                                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-slate-900"
+                                            value={directRate}
+                                            onChange={(e) => setDirectRate(parseFloat(e.target.value) || 0)}
+                                            className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-transparent text-slate-900 text-sm"
+                                            min="0.01"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-600 mb-1">
-                                            {bankNames.currencyBridge} to {bankNames.currencyFrom} (Sell Rate)
+                                        <label className="block text-xs font-medium text-slate-600 mb-1">
+                                            USD to SAR (Sell Rate)
                                         </label>
                                         <input
                                             type="number"
                                             step="0.01"
-                                            value={rates.rajhiUsdToSar}
-                                            onChange={(e) => updateRate('rajhiUsdToSar', e.target.value)}
-                                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-slate-900"
+                                            value={sellRate}
+                                            onChange={(e) => setSellRate(parseFloat(e.target.value) || 0)}
+                                            className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-transparent text-slate-900 text-sm"
+                                            min="0.01"
                                         />
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Receiving Bank (NBE Egypt) */}
-                            <div className="bg-gradient-to-br from-blue-50 to-white border-2 border-blue-200 rounded-xl p-5">
-                                <h3 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
-                                    <Landmark className="w-5 h-5" />
-                                    {editingBank === 'receivingBank' ? (
-                                        <div className="flex items-center gap-2 flex-1">
-                                            <input
-                                                type="text"
-                                                value={tempBankName}
-                                                onChange={(e) => setTempBankName(e.target.value)}
-                                                onKeyPress={(e) => {
-                                                    if (e.key === 'Enter') saveBank();
-                                                    if (e.key === 'Escape') cancelEditBank();
-                                                }}
-                                                className="px-2 py-1 border border-blue-400 rounded text-sm flex-1 text-slate-900"
-                                                autoFocus
-                                            />
-                                            <button onClick={saveBank} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">✓</button>
-                                            <button onClick={cancelEditBank} className="text-xs bg-gray-400 text-white px-2 py-1 rounded">✗</button>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            {bankNames.receivingBank} (Egypt)
-                                            <button onClick={() => startEditingBank('receivingBank')} className="ml-auto">
-                                                <Edit2 className="w-4 h-4 text-blue-700 hover:text-blue-900" />
-                                            </button>
-                                        </>
-                                    )}
+                            <div className="bg-gradient-to-br from-blue-50 to-white border border-blue-200 rounded-lg p-4">
+                                <h3 className="text-base font-bold text-blue-900 mb-3 flex items-center gap-2">
+                                    <Landmark className="w-4 h-4" />
+                                    {COUNTRY_CONFIG[transferTo]?.bankName} ({transferTo})
                                 </h3>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-600 mb-1">
-                                        {bankNames.currencyBridge} to {bankNames.currencyTo} (Buy Rate)
+                                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                                        USD to EGP (Buy Rate)
                                     </label>
                                     <input
                                         type="number"
                                         step="0.01"
-                                        value={rates.nbeUsdToEgp}
-                                        onChange={(e) => updateRate('nbeUsdToEgp', e.target.value)}
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900"
+                                        value={buyRate}
+                                        onChange={(e) => setBuyRate(parseFloat(e.target.value) || 0)}
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 text-sm"
+                                        min="0.01"
                                     />
                                 </div>
                             </div>
@@ -402,227 +560,173 @@ const ReverseRemittancePlanner = () => {
                     </div>
 
                     {/* Results Section */}
-                    <div className="mb-8">
-                        <h2 className="text-2xl font-bold text-slate-800 mb-4">Comparison Results</h2>
+                    <div className="mb-6">
+                        <h2 className="text-xl font-bold text-slate-800 mb-3">Comparison Results</h2>
                         
-                        <div className="grid md:grid-cols-2 gap-6">
-                            {/* Path A: Direct */}
-                            <div className={`relative rounded-xl p-6 border-2 transition-all ${
+                        <div className="grid md:grid-cols-2 gap-4">
+                            {/* Path A */}
+                            <div className={`relative rounded-lg p-5 border-2 transition-all ${
                                 bestPath === 'A' 
                                     ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-400 shadow-lg' 
                                     : 'bg-white border-slate-200'
                             }`}>
                                 {bestPath === 'A' && (
-                                    <div className="absolute -top-3 -right-3 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1 shadow-lg">
-                                        <Award className="w-4 h-4" />
-                                        Best Value
+                                    <div className="absolute -top-2 -right-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg">
+                                        <Award className="w-3 h-3" />
+                                        Best
                                     </div>
                                 )}
-                                <h3 className="text-xl font-bold text-slate-800 mb-2">
-                                    Path A: {expenseCurrency === 'EGP' ? `${bankNames.currencyFrom} Direct` : `${bankNames.currencyTo} Direct`}
-                                </h3>
-                                <p className="text-sm text-slate-600 mb-4">
-                                    {expenseCurrency === 'EGP' 
-                                        ? `Send ${bankNames.currencyFrom} → ${bankNames.sendingBank} converts to ${bankNames.currencyTo}`
-                                        : `Send ${bankNames.currencyTo} → ${bankNames.receivingBank} converts to ${bankNames.currencyFrom}`
-                                    }
-                                </p>
-                                <div className="bg-white rounded-lg p-4 border border-slate-200">
-                                    <div className="text-sm text-slate-500 mb-1">
-                                        {expenseCurrency === 'EGP' ? 'You need to send:' : 'You will receive:'}
+                                <div className="flex items-center gap-2 mb-1">
+                                    <h3 className="text-base font-bold text-slate-800">Path A:</h3>
+                                    <span className="px-3 py-1 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm font-black tracking-wider rounded-full shadow-md" style={{fontFamily: 'monospace, sans-serif'}}>
+                                        DIRECT
+                                    </span>
+                                </div>
+                                <p className="text-xs text-slate-600 mb-3">Via {COUNTRY_CONFIG[transferFrom]?.bankName}</p>
+                                <div className="bg-white rounded-md p-3 border border-slate-200 mb-2">
+                                    <div className="text-xs text-slate-500 mb-1">
+                                        {inputCurrency === fromCurrency ? 'You receive:' : 'You pay:'}
                                     </div>
-                                    <div className="text-3xl font-bold text-blue-900">
+                                    <div className="text-2xl font-bold text-blue-900">
                                         {pathA_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
                                     </div>
                                 </div>
-                                <div className="mt-3 text-xs text-slate-500">
-                                    {expenseCurrency === 'EGP' 
-                                        ? `Calculation: ${targetTotal.toLocaleString()} ${expenseCurrency} ÷ ${rates.rajhiSarToEgp} = ${pathA_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
-                                        : `Calculation: ${targetTotal.toLocaleString()} ${expenseCurrency} × ${rates.rajhiSarToEgp} = ${pathA_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
-                                    }
+                                <div className="text-xs text-slate-500 bg-slate-50 p-2 rounded border border-slate-200">
+                                    <span className="font-semibold">Calc:</span> {targetTotal.toLocaleString()} {inputCurrency} × {directConversionRate.toFixed(4)} = {pathA_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
                                 </div>
                             </div>
 
-                            {/* Path B: Bridge */}
-                            <div className={`relative rounded-xl p-6 border-2 transition-all ${
+                            {/* Path B */}
+                            <div className={`relative rounded-lg p-5 border-2 transition-all ${
                                 bestPath === 'B' 
                                     ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-400 shadow-lg' 
                                     : 'bg-white border-slate-200'
                             }`}>
                                 {bestPath === 'B' && (
-                                    <div className="absolute -top-3 -right-3 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1 shadow-lg">
-                                        <Award className="w-4 h-4" />
-                                        Best Value
+                                    <div className="absolute -top-2 -right-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg">
+                                        <Award className="w-3 h-3" />
+                                        Best
                                     </div>
                                 )}
-                                <h3 className="text-xl font-bold text-slate-800 mb-2">Path B: {bankNames.currencyBridge} Bridge</h3>
-                                <p className="text-sm text-slate-600 mb-4">
-                                    {expenseCurrency === 'EGP'
-                                        ? `Buy ${bankNames.currencyBridge} in KSA → Sell for ${bankNames.currencyTo} in Egypt`
-                                        : `Convert ${bankNames.currencyFrom} to ${bankNames.currencyBridge} → Convert to ${bankNames.currencyTo}`
-                                    }
-                                </p>
-                                <div className="bg-white rounded-lg p-4 border border-slate-200">
-                                    <div className="text-sm text-slate-500 mb-1">
-                                        {expenseCurrency === 'EGP' ? 'You need to send:' : 'You will receive:'}
+                                <div className="flex items-center gap-2 mb-1">
+                                    <h3 className="text-base font-bold text-slate-800">Path B:</h3>
+                                    <span className="px-3 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-black tracking-wider rounded-full shadow-md flex items-center gap-1" style={{fontFamily: 'monospace, sans-serif'}}>
+                                        <DollarSign className="w-3 h-3" />
+                                        USD BRIDGE
+                                    </span>
+                                </div>
+                                <p className="text-xs text-slate-600 mb-3">Via USD conversion</p>
+                                <div className="bg-white rounded-md p-3 border border-slate-200 mb-2">
+                                    <div className="text-xs text-slate-500 mb-1">
+                                        {inputCurrency === fromCurrency ? 'You receive:' : 'You pay:'}
                                     </div>
-                                    <div className="text-3xl font-bold text-blue-900">
+                                    <div className="text-2xl font-bold text-blue-900">
                                         {pathB_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
                                     </div>
                                 </div>
-                                <div className="mt-3 text-xs text-slate-500">
-                                    {expenseCurrency === 'EGP'
-                                        ? `Calculation: (${targetTotal.toLocaleString()} ${expenseCurrency} ÷ ${rates.nbeUsdToEgp}) × ${rates.rajhiUsdToSar} = ${pathB_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
-                                        : `Calculation: (${targetTotal.toLocaleString()} ${expenseCurrency} ÷ ${rates.rajhiUsdToSar}) × ${rates.nbeUsdToEgp} = ${pathB_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
-                                    }
+                                <div className="text-xs text-slate-500 bg-slate-50 p-2 rounded border border-slate-200">
+                                    <span className="font-semibold">Calc:</span> {targetTotal.toLocaleString()} {inputCurrency} × {inputToUsd.toFixed(4)} × {usdToResult.toFixed(4)} = {pathB_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
                                 </div>
                             </div>
                         </div>
 
-                        {/* Savings Summary */}
+                     {/* Savings Summary */}
                         {bestPath && savings > 0 && (
-                            <div className="mt-6 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl p-5 text-white">
-                                <div className="flex items-center justify-between flex-wrap gap-3">
+                            <div className="mt-4 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg p-4 text-white">
+                                <div className="flex items-center justify-between flex-wrap gap-2">
                                     <div>
-                                        <div className="text-sm opacity-90">
-                                            {expenseCurrency === 'EGP' ? 'Savings with Path' : 'Extra received with Path'} {bestPath}:
+                                        <div className="text-xs opacity-90">
+                                            {inputCurrency === fromCurrency ? 'Extra received' : 'Savings'} with Path {bestPath}:
                                         </div>
-                                        <div className="text-3xl font-bold">{savings.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}</div>
+                                        <div className="text-2xl font-bold">{savings.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}</div>
                                     </div>
                                     <div className="text-right">
-                                        <div className="text-sm opacity-90">
-                                            {expenseCurrency === 'EGP' ? 'Cost Difference:' : 'Value Difference:'}
-                                        </div>
-                                        <div className="text-xl font-semibold">{((savings / Math.max(pathA_Result, pathB_Result)) * 100).toFixed(2)}% {expenseCurrency === 'EGP' ? 'cheaper' : 'more'}</div>
+                                        <div className="text-xs opacity-90">Difference:</div>
+                                        <div className="text-lg font-semibold">{((savings / Math.max(pathA_Result, pathB_Result)) * 100).toFixed(2)}%</div>
                                     </div>
                                 </div>
                             </div>
                         )}
                     </div>
 
-                    {/* Detailed Breakdown Section - Collapsible */}
+                    {/* Detailed Breakdown - Collapsible */}
                     <div>
-                        {/* Toggle Button */}
                         <button
                             onClick={() => setShowBreakdown(!showBreakdown)}
-                            className="w-full flex items-center justify-between bg-gradient-to-r from-slate-700 to-slate-600 text-white p-4 rounded-xl shadow-lg hover:from-slate-800 hover:to-slate-700 transition-all mb-4"
+                            className="w-full flex items-center justify-between bg-gradient-to-r from-slate-700 to-slate-600 text-white p-3 rounded-lg shadow-lg hover:from-slate-800 hover:to-slate-700 transition-all"
                         >
-                            <div className="flex items-center gap-3">
-                                <Receipt className="w-6 h-6" />
-                                <h2 className="text-2xl font-bold">Detailed Breakdown</h2>
+                            <div className="flex items-center gap-2">
+                                <Receipt className="w-5 h-5" />
+                                <h2 className="text-lg font-bold">Detailed Breakdown</h2>
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="text-sm opacity-90">
-                                    {showBreakdown ? 'Hide' : 'Show'} Details
-                                </span>
-                                {showBreakdown ? (
-                                    <ChevronUp className="w-6 h-6" />
-                                ) : (
-                                    <ChevronDown className="w-6 h-6" />
-                                )}
+                                <span className="text-xs opacity-90">{showBreakdown ? 'Hide' : 'Show'}</span>
+                                {showBreakdown ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                             </div>
                         </button>
 
-                        {/* Collapsible Content */}
                         {showBreakdown && (
-                            <div className="space-y-6 animate-fadeIn">
-                                {/* Path Selection Toggle */}
-                                <div className="bg-gradient-to-r from-slate-50 to-blue-50 border-2 border-slate-200 rounded-xl p-4">
-                                    <label className="block text-sm font-semibold text-slate-700 mb-3">Active Conversion Path:</label>
-                                    <div className="flex gap-4 flex-wrap">
+                            <div className="mt-4 space-y-4 animate-fadeIn">
+                                <div className="bg-gradient-to-r from-slate-50 to-blue-50 border border-slate-200 rounded-lg p-3">
+                                    <label className="block text-xs font-semibold text-slate-700 mb-2">Active Path:</label>
+                                    <div className="flex gap-3">
                                         <button
                                             onClick={() => setSelectedPath('A')}
-                                            className={`flex-1 min-w-[200px] px-4 py-3 rounded-lg border-2 transition-all font-medium ${
+                                            className={`flex-1 px-3 py-2 rounded-md border transition-all text-sm font-medium ${
                                                 selectedPath === 'A'
-                                                    ? 'bg-blue-600 text-white border-blue-600 shadow-lg'
+                                                    ? 'bg-blue-600 text-white border-blue-600 shadow'
                                                     : 'bg-white text-slate-700 border-slate-300 hover:border-blue-400'
                                             }`}
                                         >
-                                            <div className="flex items-center justify-center gap-2">
-                                                <span>Path A: {expenseCurrency === 'EGP' ? `${bankNames.currencyFrom} Direct` : `${bankNames.currencyTo} Direct`}</span>
-                                                {bestPath === 'A' && <Award className="w-4 h-4" />}
-                                            </div>
-                                            <div className="text-xs mt-1 opacity-80">
-                                                Rate: {rates.rajhiSarToEgp} {bankNames.currencyFrom}/{bankNames.currencyTo}
-                                            </div>
+                                            Path A {bestPath === 'A' && '⭐'}
                                         </button>
                                         <button
                                             onClick={() => setSelectedPath('B')}
-                                            className={`flex-1 min-w-[200px] px-4 py-3 rounded-lg border-2 transition-all font-medium ${
+                                            className={`flex-1 px-3 py-2 rounded-md border transition-all text-sm font-medium ${
                                                 selectedPath === 'B'
-                                                    ? 'bg-blue-600 text-white border-blue-600 shadow-lg'
+                                                    ? 'bg-blue-600 text-white border-blue-600 shadow'
                                                     : 'bg-white text-slate-700 border-slate-300 hover:border-blue-400'
                                             }`}
                                         >
-                                            <div className="flex items-center justify-center gap-2">
-                                                <span>Path B: {bankNames.currencyBridge} Bridge</span>
-                                                {bestPath === 'B' && <Award className="w-4 h-4" />}
-                                            </div>
-                                            <div className="text-xs mt-1 opacity-80">
-                                                Via {bankNames.currencyBridge}
-                                            </div>
+                                            Path B {bestPath === 'B' && '⭐'}
                                         </button>
                                     </div>
                                 </div>
 
-                                {/* Invoice/Receipt Style Breakdown */}
-                                <div className="bg-white border-2 border-slate-300 rounded-xl shadow-lg overflow-hidden">
-                                    {/* Receipt Header */}
-                                    <div className="bg-gradient-to-r from-slate-700 to-slate-600 text-white p-4">
+                                <div className="bg-white border border-slate-300 rounded-lg shadow overflow-hidden">
+                                    <div className="bg-gradient-to-r from-slate-700 to-slate-600 text-white p-3">
                                         <div className="flex items-center justify-between">
                                             <div>
-                                                <h3 className="text-lg font-bold">Cost Breakdown</h3>
-                                                <p className="text-xs text-slate-200">
-                                                    Using: Path {selectedPath} - {selectedPath === 'A' 
-                                                        ? (expenseCurrency === 'EGP' ? `${bankNames.currencyFrom} Direct` : `${bankNames.currencyTo} Direct`)
-                                                        : `${bankNames.currencyBridge} Bridge`
-                                                    }
-                                                </p>
+                                                <h3 className="text-sm font-bold">Breakdown</h3>
+                                                <p className="text-xs text-slate-200">Path {selectedPath}</p>
                                             </div>
-                                            <Receipt className="w-8 h-8 opacity-80" />
+                                            <Receipt className="w-6 h-6 opacity-80" />
                                         </div>
                                     </div>
 
-                                    {/* Receipt Items */}
-                                    <div className="p-6">
+                                    <div className="p-4">
                                         {expenses.length === 0 ? (
-                                            <div className="text-center py-8 text-slate-500">
-                                                <p>No expenses added yet</p>
-                                                <p className="text-sm mt-2">Add expenses above to see the breakdown</p>
+                                            <div className="text-center py-6 text-slate-500 text-sm">
+                                                <p>No expenses added</p>
                                             </div>
                                         ) : (
-                                            <div className="space-y-3">
-                                                {/* Table Header */}
-                                                <div className="grid grid-cols-12 gap-4 pb-3 border-b-2 border-slate-200 text-sm font-semibold text-slate-600">
+                                            <div className="space-y-2">
+                                                <div className="grid grid-cols-12 gap-3 pb-2 border-b border-slate-200 text-xs font-semibold text-slate-600">
                                                     <div className="col-span-5">Item</div>
-                                                    <div className="col-span-3 text-right">{expenseCurrency} Amount</div>
-                                                    <div className="col-span-1 text-center">
-                                                        <ArrowRight className="w-4 h-4 mx-auto" />
-                                                    </div>
-                                                    <div className="col-span-3 text-right">{resultCurrency} {expenseCurrency === 'EGP' ? 'Cost' : 'Value'}</div>
+                                                    <div className="col-span-3 text-right">{inputCurrency}</div>
+                                                    <div className="col-span-1 text-center"><ArrowRight className="w-3 h-3 mx-auto" /></div>
+                                                    <div className="col-span-3 text-right">{resultCurrency}</div>
                                                 </div>
 
-                                                {/* Table Rows */}
                                                 {expenses.map((expense, index) => {
                                                     const resultAmount = calculateItemCostInResultCurrency(expense.amount);
                                                     return (
-                                                        <div 
-                                                            key={expense.id} 
-                                                            className={`grid grid-cols-12 gap-4 py-3 ${
-                                                                index !== expenses.length - 1 ? 'border-b border-slate-100' : ''
-                                                            }`}
-                                                        >
-                                                            <div className="col-span-5 font-medium text-slate-800">
-                                                                {expense.name}
-                                                            </div>
-                                                            <div className="col-span-3 text-right text-slate-700">
-                                                                {expense.amount.toLocaleString()} {expenseCurrency}
-                                                            </div>
-                                                            <div className="col-span-1 text-center text-slate-400">
-                                                                <ArrowRight className="w-4 h-4 mx-auto" />
-                                                            </div>
+                                                        <div key={expense.id} className={`grid grid-cols-12 gap-3 py-2 text-sm ${index !== expenses.length - 1 ? 'border-b border-slate-100' : ''}`}>
+                                                            <div className="col-span-5 font-medium text-slate-800">{expense.name}</div>
+                                                            <div className="col-span-3 text-right text-slate-700">{expense.amount.toLocaleString()}</div>
+                                                            <div className="col-span-1 text-center text-slate-400"><ArrowRight className="w-3 h-3 mx-auto" /></div>
                                                             <div className="col-span-3 text-right font-semibold text-blue-900">
-                                                                {resultAmount.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
+                                                                {resultAmount.toLocaleString(undefined, {maximumFractionDigits: 2})}
                                                             </div>
                                                         </div>
                                                     );
@@ -630,40 +734,17 @@ const ReverseRemittancePlanner = () => {
                                             </div>
                                         )}
 
-                                        {/* Total Section */}
                                         {expenses.length > 0 && (
-                                            <div className="mt-6 pt-4 border-t-2 border-slate-300">
-                                                <div className="grid grid-cols-12 gap-4">
-                                                    <div className="col-span-5 text-lg font-bold text-slate-800">
-                                                        TOTAL
-                                                    </div>
-                                                    <div className="col-span-3 text-right text-lg font-bold text-slate-800">
-                                                        {targetTotal.toLocaleString()} {expenseCurrency}
+                                            <div className="mt-4 pt-3 border-t-2 border-slate-300">
+                                                <div className="grid grid-cols-12 gap-3">
+                                                    <div className="col-span-5 text-sm font-bold text-slate-800">TOTAL</div>
+                                                    <div className="col-span-3 text-right text-sm font-bold text-slate-800">
+                                                        {targetTotal.toLocaleString()}
                                                     </div>
                                                     <div className="col-span-1"></div>
-                                                    <div className="col-span-3 text-right text-2xl font-bold text-blue-900">
-                                                        {(selectedPath === 'A' ? pathA_Result : pathB_Result).toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
+                                                    <div className="col-span-3 text-right text-xl font-bold text-blue-900">
+                                                        {(selectedPath === 'A' ? pathA_Result : pathB_Result).toLocaleString(undefined, {maximumFractionDigits: 2})}
                                                     </div>
-                                                </div>
-
-                                                {/* Conversion Details */}
-                                                <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                                                    <p className="text-sm text-slate-600 font-medium mb-2">Conversion Details:</p>
-                                                    {selectedPath === 'A' ? (
-                                                        <p className="text-xs text-slate-500">
-                                                            {expenseCurrency === 'EGP'
-                                                                ? `Using ${bankNames.sendingBank} direct transfer at ${rates.rajhiSarToEgp} ${bankNames.currencyFrom}/${bankNames.currencyTo}`
-                                                                : `Using ${bankNames.receivingBank} direct transfer at ${rates.rajhiSarToEgp} ${bankNames.currencyFrom}/${bankNames.currencyTo}`
-                                                            }
-                                                        </p>
-                                                    ) : (
-                                                        <p className="text-xs text-slate-500">
-                                                            {expenseCurrency === 'EGP'
-                                                                ? `Buying ${bankNames.currencyBridge} at ${rates.rajhiUsdToSar} ${bankNames.currencyFrom}/${bankNames.currencyBridge}, selling for ${bankNames.currencyTo} at ${rates.nbeUsdToEgp} ${bankNames.currencyBridge}/${bankNames.currencyTo}`
-                                                                : `Converting ${bankNames.currencyFrom} to ${bankNames.currencyBridge} at ${rates.rajhiUsdToSar} ${bankNames.currencyFrom}/${bankNames.currencyBridge}, then to ${bankNames.currencyTo} at ${rates.nbeUsdToEgp} ${bankNames.currencyBridge}/${bankNames.currencyTo}`
-                                                            }
-                                                        </p>
-                                                    )}
                                                 </div>
                                             </div>
                                         )}
@@ -675,27 +756,17 @@ const ReverseRemittancePlanner = () => {
                 </div>
 
                 {/* Footer */}
-                <div className="mt-8 text-center py-6 bg-white rounded-xl shadow-md">
-                    <p className="text-slate-600 text-sm">
-                        All rights reserved {currentYear} © Wafiq M. Abdulrahman
-                    </p>
+                <div className="mt-6 text-center py-4 bg-white rounded-lg shadow-sm">
+                    <p className="text-slate-600 text-xs">All rights reserved {currentYear} © Wafiq M. Abdulrahman</p>
                 </div>
             </div>
 
             <style jsx>{`
                 @keyframes fadeIn {
-                    from {
-                        opacity: 0;
-                        transform: translateY(-10px);
-                    }
-                    to {
-                        opacity: 1;
-                        transform: translateY(0);
-                    }
+                    from { opacity: 0; transform: translateY(-10px); }
+                    to { opacity: 1; transform: translateY(0); }
                 }
-                .animate-fadeIn {
-                    animation: fadeIn 0.3s ease-out;
-                }
+                .animate-fadeIn { animation: fadeIn 0.3s ease-out; }
             `}</style>
         </div>
     );
