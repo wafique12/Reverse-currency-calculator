@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Landmark, TrendingDown, Award, Edit2, Receipt, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, Landmark, TrendingDown, Award, Edit2, Receipt, ArrowRight, ChevronDown, ChevronUp, Coins, Globe2 } from 'lucide-react';
+
+const COUNTRIES = {
+    SA: { label: 'Saudi Arabia', currency: 'SAR' },
+    EG: { label: 'Egypt', currency: 'EGP' }
+};
+
+const INPUT_CURRENCIES = ['SAR', 'EGP', 'USD'];
 
 const ReverseRemittancePlanner = () => {
     // Initialize state from localStorage or use defaults
@@ -34,6 +41,16 @@ const ReverseRemittancePlanner = () => {
     const [expenseCurrency, setExpenseCurrency] = useState(() => {
         const saved = localStorage.getItem('remittance-expense-currency');
         return saved || 'EGP';
+    });
+
+    const [transferFromCountry, setTransferFromCountry] = useState(() => {
+        const saved = localStorage.getItem('remittance-transfer-from-country');
+        return saved || 'SA';
+    });
+
+    const [transferToCountry, setTransferToCountry] = useState(() => {
+        const saved = localStorage.getItem('remittance-transfer-to-country');
+        return saved || 'EG';
     });
 
     const [selectedPath, setSelectedPath] = useState(() => {
@@ -76,45 +93,58 @@ const ReverseRemittancePlanner = () => {
         localStorage.setItem('remittance-expense-currency', expenseCurrency);
     }, [expenseCurrency]);
 
+    useEffect(() => {
+        localStorage.setItem('remittance-transfer-from-country', transferFromCountry);
+    }, [transferFromCountry]);
+
+    useEffect(() => {
+        localStorage.setItem('remittance-transfer-to-country', transferToCountry);
+    }, [transferToCountry]);
+
     // Calculate target total in the expense currency
     const targetTotal = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
 
-    // Determine result currency (opposite of expense currency)
-    const resultCurrency = expenseCurrency === 'EGP' ? bankNames.currencyFrom : bankNames.currencyTo;
+    const routeCurrencies = {
+        from: COUNTRIES[transferFromCountry]?.currency || bankNames.currencyFrom,
+        to: COUNTRIES[transferToCountry]?.currency || bankNames.currencyTo,
+        bridge: bankNames.currencyBridge
+    };
+
+    const resultCurrency = expenseCurrency === routeCurrencies.to ? routeCurrencies.from : routeCurrencies.to;
+    const isSendMode = resultCurrency === routeCurrencies.from;
 
     // Calculate conversions based on expense currency
     let pathA_Result, pathB_Result;
 
-    if (expenseCurrency === 'EGP') {
-        // Original logic: EGP expenses → SAR results
+    if (expenseCurrency === routeCurrencies.to) {
         pathA_Result = rates.rajhiSarToEgp > 0 ? targetTotal / rates.rajhiSarToEgp : 0;
         const usdNeeded = rates.nbeUsdToEgp > 0 ? targetTotal / rates.nbeUsdToEgp : 0;
         pathB_Result = usdNeeded * rates.rajhiUsdToSar;
-    } else {
-        // Reverse logic: SAR expenses → EGP results
+    } else if (expenseCurrency === routeCurrencies.from) {
         pathA_Result = targetTotal * rates.rajhiSarToEgp;
         const usdFromSar = rates.rajhiUsdToSar > 0 ? targetTotal / rates.rajhiUsdToSar : 0;
         pathB_Result = usdFromSar * rates.nbeUsdToEgp;
+    } else {
+        pathA_Result = 0;
+        pathB_Result = targetTotal * rates.nbeUsdToEgp;
     }
 
     // Determine best path
-    const bestPath = pathA_Result > 0 && pathB_Result > 0 
-        ? (pathA_Result < pathB_Result ? 'A' : 'B')
+    const bestPath = pathA_Result > 0 && pathB_Result > 0
+        ? (isSendMode ? (pathA_Result < pathB_Result ? 'A' : 'B') : (pathA_Result > pathB_Result ? 'A' : 'B'))
         : null;
     const savings = bestPath ? Math.abs(pathA_Result - pathB_Result) : 0;
 
     // Calculate individual item costs in result currency based on selected path
     const calculateItemCostInResultCurrency = (itemAmount) => {
-        if (expenseCurrency === 'EGP') {
-            // EGP → SAR conversion
+        if (expenseCurrency === routeCurrencies.to) {
             if (selectedPath === 'A') {
                 return rates.rajhiSarToEgp > 0 ? itemAmount / rates.rajhiSarToEgp : 0;
             } else {
                 const usdForItem = rates.nbeUsdToEgp > 0 ? itemAmount / rates.nbeUsdToEgp : 0;
                 return usdForItem * rates.rajhiUsdToSar;
             }
-        } else {
-            // SAR → EGP conversion
+        } else if (expenseCurrency === routeCurrencies.from) {
             if (selectedPath === 'A') {
                 return itemAmount * rates.rajhiSarToEgp;
             } else {
@@ -122,6 +152,8 @@ const ReverseRemittancePlanner = () => {
                 return usdFromSar * rates.nbeUsdToEgp;
             }
         }
+
+        return itemAmount * rates.nbeUsdToEgp;
     };
 
     const addExpense = () => {
@@ -173,7 +205,7 @@ const ReverseRemittancePlanner = () => {
     const currentYear = new Date().getFullYear();
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+        <div className="min-h-screen bg-zinc-950 p-4 md:p-8">
             <div className="max-w-6xl mx-auto">
                 {/* Header */}
                 <div className="bg-gradient-to-r from-blue-900 to-blue-700 rounded-t-2xl p-6 md:p-8 text-white shadow-xl">
@@ -184,39 +216,66 @@ const ReverseRemittancePlanner = () => {
                     <p className="text-blue-100 text-sm md:text-base">Calculate the optimal currency exchange path for your expenses</p>
                 </div>
 
-                <div className="bg-white rounded-b-2xl shadow-xl p-6 md:p-8">
+                <div className="bg-zinc-900 rounded-b-2xl shadow-xl p-6 md:p-8 border border-zinc-800">
                     {/* Expenses Section */}
                     <div className="mb-8">
                         <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
-                            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                            <h2 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
                                 <TrendingDown className="w-6 h-6 text-blue-600" />
                                 Monthly Expenses
                             </h2>
                             
                             {/* Currency Selector */}
-                            <div className="flex items-center gap-3 bg-slate-50 border-2 border-slate-200 rounded-lg p-2">
-                                <label className="text-sm font-semibold text-slate-700">Currency:</label>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => setExpenseCurrency('EGP')}
-                                        className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                                            expenseCurrency === 'EGP'
-                                                ? 'bg-blue-600 text-white shadow-md'
-                                                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-300'
-                                        }`}
+                            <div className="grid md:grid-cols-3 gap-3 w-full">
+                                <div className="bg-zinc-800 border border-zinc-700 rounded-lg p-3">
+                                    <label className="text-xs font-semibold text-zinc-300 mb-2 flex items-center gap-2"><Coins className="w-4 h-4" />Input Currency</label>
+                                    <select
+                                        value={expenseCurrency}
+                                        onChange={(e) => setExpenseCurrency(e.target.value)}
+                                        className="w-full bg-zinc-900 text-zinc-100 border border-zinc-600 rounded-lg px-3 py-2"
                                     >
-                                        {bankNames.currencyTo}
-                                    </button>
-                                    <button
-                                        onClick={() => setExpenseCurrency('SAR')}
-                                        className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                                            expenseCurrency === 'SAR'
-                                                ? 'bg-blue-600 text-white shadow-md'
-                                                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-300'
-                                        }`}
+                                        {INPUT_CURRENCIES.map((currency) => (
+                                            <option key={currency} value={currency}>{currency}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="bg-zinc-800 border border-zinc-700 rounded-lg p-3">
+                                    <label className="text-xs font-semibold text-zinc-300 mb-2 flex items-center gap-2"><Globe2 className="w-4 h-4" />From</label>
+                                    <select
+                                        value={transferFromCountry}
+                                        onChange={(e) => {
+                                            const next = e.target.value;
+                                            setTransferFromCountry(next);
+                                            if (next === transferToCountry) {
+                                                setTransferToCountry(next === 'SA' ? 'EG' : 'SA');
+                                            }
+                                        }}
+                                        className="w-full bg-zinc-900 text-zinc-100 border border-zinc-600 rounded-lg px-3 py-2"
                                     >
-                                        {bankNames.currencyFrom}
-                                    </button>
+                                        {Object.entries(COUNTRIES).map(([code, country]) => (
+                                            <option key={code} value={code}>{country.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="bg-zinc-800 border border-zinc-700 rounded-lg p-3">
+                                    <label className="text-xs font-semibold text-zinc-300 mb-2 flex items-center gap-2"><ArrowRight className="w-4 h-4" />To</label>
+                                    <select
+                                        value={transferToCountry}
+                                        onChange={(e) => {
+                                            const next = e.target.value;
+                                            setTransferToCountry(next);
+                                            if (next === transferFromCountry) {
+                                                setTransferFromCountry(next === 'SA' ? 'EG' : 'SA');
+                                            }
+                                        }}
+                                        className="w-full bg-zinc-900 text-zinc-100 border border-zinc-600 rounded-lg px-3 py-2"
+                                    >
+                                        {Object.entries(COUNTRIES).map(([code, country]) => (
+                                            <option key={code} value={code}>{country.label}</option>
+                                        ))}
+                                    </select>
                                 </div>
                             </div>
                         </div>
@@ -419,24 +478,24 @@ const ReverseRemittancePlanner = () => {
                                     </div>
                                 )}
                                 <h3 className="text-xl font-bold text-slate-800 mb-2">
-                                    Path A: {expenseCurrency === 'EGP' ? `${bankNames.currencyFrom} Direct` : `${bankNames.currencyTo} Direct`}
+                                    Path A: {isSendMode ? `${routeCurrencies.from} Direct` : `${routeCurrencies.to} Direct`}
                                 </h3>
                                 <p className="text-sm text-slate-600 mb-4">
-                                    {expenseCurrency === 'EGP' 
-                                        ? `Send ${bankNames.currencyFrom} → ${bankNames.sendingBank} converts to ${bankNames.currencyTo}`
-                                        : `Send ${bankNames.currencyTo} → ${bankNames.receivingBank} converts to ${bankNames.currencyFrom}`
+                                    {isSendMode
+                                        ? `Send ${routeCurrencies.from} → ${bankNames.sendingBank} converts to ${routeCurrencies.to}`
+                                        : `Send ${routeCurrencies.from} → ${bankNames.receivingBank} converts to ${routeCurrencies.to}`
                                     }
                                 </p>
                                 <div className="bg-white rounded-lg p-4 border border-slate-200">
                                     <div className="text-sm text-slate-500 mb-1">
-                                        {expenseCurrency === 'EGP' ? 'You need to send:' : 'You will receive:'}
+                                        {isSendMode ? 'You need to send:' : 'You will receive:'}
                                     </div>
                                     <div className="text-3xl font-bold text-blue-900">
                                         {pathA_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
                                     </div>
                                 </div>
                                 <div className="mt-3 text-xs text-slate-500">
-                                    {expenseCurrency === 'EGP' 
+                                    {isSendMode
                                         ? `Calculation: ${targetTotal.toLocaleString()} ${expenseCurrency} ÷ ${rates.rajhiSarToEgp} = ${pathA_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
                                         : `Calculation: ${targetTotal.toLocaleString()} ${expenseCurrency} × ${rates.rajhiSarToEgp} = ${pathA_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
                                     }
@@ -457,21 +516,21 @@ const ReverseRemittancePlanner = () => {
                                 )}
                                 <h3 className="text-xl font-bold text-slate-800 mb-2">Path B: {bankNames.currencyBridge} Bridge</h3>
                                 <p className="text-sm text-slate-600 mb-4">
-                                    {expenseCurrency === 'EGP'
-                                        ? `Buy ${bankNames.currencyBridge} in KSA → Sell for ${bankNames.currencyTo} in Egypt`
-                                        : `Convert ${bankNames.currencyFrom} to ${bankNames.currencyBridge} → Convert to ${bankNames.currencyTo}`
+                                    {isSendMode
+                                        ? `Buy ${routeCurrencies.bridge} in ${COUNTRIES[transferFromCountry].label} → Sell for ${routeCurrencies.to} in ${COUNTRIES[transferToCountry].label}`
+                                        : `Convert ${routeCurrencies.from} to ${routeCurrencies.bridge} → Convert to ${routeCurrencies.to}`
                                     }
                                 </p>
                                 <div className="bg-white rounded-lg p-4 border border-slate-200">
                                     <div className="text-sm text-slate-500 mb-1">
-                                        {expenseCurrency === 'EGP' ? 'You need to send:' : 'You will receive:'}
+                                        {isSendMode ? 'You need to send:' : 'You will receive:'}
                                     </div>
                                     <div className="text-3xl font-bold text-blue-900">
                                         {pathB_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}
                                     </div>
                                 </div>
                                 <div className="mt-3 text-xs text-slate-500">
-                                    {expenseCurrency === 'EGP'
+                                    {isSendMode
                                         ? `Calculation: (${targetTotal.toLocaleString()} ${expenseCurrency} ÷ ${rates.nbeUsdToEgp}) × ${rates.rajhiUsdToSar} = ${pathB_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
                                         : `Calculation: (${targetTotal.toLocaleString()} ${expenseCurrency} ÷ ${rates.rajhiUsdToSar}) × ${rates.nbeUsdToEgp} = ${pathB_Result.toLocaleString(undefined, {maximumFractionDigits: 2})} ${resultCurrency}`
                                     }
@@ -485,15 +544,15 @@ const ReverseRemittancePlanner = () => {
                                 <div className="flex items-center justify-between flex-wrap gap-3">
                                     <div>
                                         <div className="text-sm opacity-90">
-                                            {expenseCurrency === 'EGP' ? 'Savings with Path' : 'Extra received with Path'} {bestPath}:
+                                            {isSendMode ? 'Savings with Path' : 'Extra received with Path'} {bestPath}:
                                         </div>
                                         <div className="text-3xl font-bold">{savings.toLocaleString(undefined, {maximumFractionDigits: 2})} {resultCurrency}</div>
                                     </div>
                                     <div className="text-right">
                                         <div className="text-sm opacity-90">
-                                            {expenseCurrency === 'EGP' ? 'Cost Difference:' : 'Value Difference:'}
+                                            {isSendMode ? 'Cost Difference:' : 'Value Difference:'}
                                         </div>
-                                        <div className="text-xl font-semibold">{((savings / Math.max(pathA_Result, pathB_Result)) * 100).toFixed(2)}% {expenseCurrency === 'EGP' ? 'cheaper' : 'more'}</div>
+                                        <div className="text-xl font-semibold">{((savings / Math.max(pathA_Result, pathB_Result)) * 100).toFixed(2)}% {isSendMode ? 'cheaper' : 'more'}</div>
                                     </div>
                                 </div>
                             </div>
@@ -539,7 +598,7 @@ const ReverseRemittancePlanner = () => {
                                             }`}
                                         >
                                             <div className="flex items-center justify-center gap-2">
-                                                <span>Path A: {expenseCurrency === 'EGP' ? `${bankNames.currencyFrom} Direct` : `${bankNames.currencyTo} Direct`}</span>
+                                                <span>Path A: {isSendMode ? `${routeCurrencies.from} Direct` : `${routeCurrencies.to} Direct`}</span>
                                                 {bestPath === 'A' && <Award className="w-4 h-4" />}
                                             </div>
                                             <div className="text-xs mt-1 opacity-80">
@@ -574,7 +633,7 @@ const ReverseRemittancePlanner = () => {
                                                 <h3 className="text-lg font-bold">Cost Breakdown</h3>
                                                 <p className="text-xs text-slate-200">
                                                     Using: Path {selectedPath} - {selectedPath === 'A' 
-                                                        ? (expenseCurrency === 'EGP' ? `${bankNames.currencyFrom} Direct` : `${bankNames.currencyTo} Direct`)
+                                                        ? (isSendMode ? `${routeCurrencies.from} Direct` : `${routeCurrencies.to} Direct`)
                                                         : `${bankNames.currencyBridge} Bridge`
                                                     }
                                                 </p>
@@ -599,7 +658,7 @@ const ReverseRemittancePlanner = () => {
                                                     <div className="col-span-1 text-center">
                                                         <ArrowRight className="w-4 h-4 mx-auto" />
                                                     </div>
-                                                    <div className="col-span-3 text-right">{resultCurrency} {expenseCurrency === 'EGP' ? 'Cost' : 'Value'}</div>
+                                                    <div className="col-span-3 text-right">{resultCurrency} {isSendMode ? 'Cost' : 'Value'}</div>
                                                 </div>
 
                                                 {/* Table Rows */}
@@ -651,16 +710,16 @@ const ReverseRemittancePlanner = () => {
                                                     <p className="text-sm text-slate-600 font-medium mb-2">Conversion Details:</p>
                                                     {selectedPath === 'A' ? (
                                                         <p className="text-xs text-slate-500">
-                                                            {expenseCurrency === 'EGP'
-                                                                ? `Using ${bankNames.sendingBank} direct transfer at ${rates.rajhiSarToEgp} ${bankNames.currencyFrom}/${bankNames.currencyTo}`
-                                                                : `Using ${bankNames.receivingBank} direct transfer at ${rates.rajhiSarToEgp} ${bankNames.currencyFrom}/${bankNames.currencyTo}`
+                                                            {isSendMode
+                                                                ? `Using ${bankNames.sendingBank} direct transfer at ${rates.rajhiSarToEgp} ${routeCurrencies.from}/${routeCurrencies.to}`
+                                                                : `Using ${bankNames.receivingBank} direct transfer at ${rates.rajhiSarToEgp} ${routeCurrencies.from}/${routeCurrencies.to}`
                                                             }
                                                         </p>
                                                     ) : (
                                                         <p className="text-xs text-slate-500">
-                                                            {expenseCurrency === 'EGP'
-                                                                ? `Buying ${bankNames.currencyBridge} at ${rates.rajhiUsdToSar} ${bankNames.currencyFrom}/${bankNames.currencyBridge}, selling for ${bankNames.currencyTo} at ${rates.nbeUsdToEgp} ${bankNames.currencyBridge}/${bankNames.currencyTo}`
-                                                                : `Converting ${bankNames.currencyFrom} to ${bankNames.currencyBridge} at ${rates.rajhiUsdToSar} ${bankNames.currencyFrom}/${bankNames.currencyBridge}, then to ${bankNames.currencyTo} at ${rates.nbeUsdToEgp} ${bankNames.currencyBridge}/${bankNames.currencyTo}`
+                                                            {isSendMode
+                                                                ? `Buying ${routeCurrencies.bridge} at ${rates.rajhiUsdToSar} ${routeCurrencies.from}/${routeCurrencies.bridge}, selling for ${routeCurrencies.to} at ${rates.nbeUsdToEgp} ${routeCurrencies.bridge}/${routeCurrencies.to}`
+                                                                : `Converting ${routeCurrencies.from} to ${routeCurrencies.bridge} at ${rates.rajhiUsdToSar} ${routeCurrencies.from}/${routeCurrencies.bridge}, then to ${routeCurrencies.to} at ${rates.nbeUsdToEgp} ${routeCurrencies.bridge}/${routeCurrencies.to}`
                                                             }
                                                         </p>
                                                     )}
